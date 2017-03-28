@@ -1,0 +1,81 @@
+//
+// Generate word count of a set of files. Uses goroutines
+// to allow concurrent processing.
+//
+
+package main
+
+import "fmt"
+import "io/ioutil"
+import "os"
+import "bufio"
+import "runtime"
+
+type Count struct {
+    fname string
+    count int
+}
+
+func getPwdFiles() []string {
+    files, err := ioutil.ReadDir("./")
+    result := []string{}
+    if err == nil {
+        for _, f := range files {
+            result = append(result, f.Name())
+        }
+    } else {
+        panic("ReadDir error")
+    }
+    return result
+}
+
+func countFile_chan(fname string, c chan map[string]int) {
+    count := map[string]int{}
+    f, err := os.Open(fname)
+    if err == nil {
+        scanner := bufio.NewScanner(f)
+        scanner.Split(bufio.ScanWords)
+        for scanner.Scan() {
+            word := scanner.Text()
+            count[word]++
+        }
+    }
+    f.Close()
+    c <- count
+}
+
+func main() {
+    nCPU := runtime.NumCPU()
+    runtime.GOMAXPROCS(nCPU)
+
+    // countChan is a buffered channel to avoid "too many files open" error
+    var countChan = make(chan map[string]int, 200)
+
+    count := map[string]int{}
+
+    fileNames := getPwdFiles()
+
+    fmt.Printf("%d files in pwd ...\n", len(fileNames))
+
+    // launch all the goroutines
+    for _, fname := range fileNames {
+        go countFile_chan(fname, countChan)
+    }
+
+    // drain the channel
+    for i := 0; i < len(fileNames); i++ {
+        m := <-countChan  // wait for a result on the channel
+        for w, c := range m {
+            count[w] += c
+        }
+    }
+
+    fmt.Println(len(count), " different words")
+
+    wc := 0
+    for _, val := range count {
+        wc += val
+    }
+
+    fmt.Println(wc, " total words")
+}
